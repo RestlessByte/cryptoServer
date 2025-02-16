@@ -2,6 +2,9 @@ import crypto, { CipherGCM, DecipherGCM } from 'crypto';
 import { webcrypto as OqsKem } from 'crypto';
 import oqs from "node-oqs";
 
+/**
+ * Interface for cryptographic configuration.
+ */
 interface ICryptoConfig {
   ivLength: number;
   saltLength: number;
@@ -9,31 +12,42 @@ interface ICryptoConfig {
   encryptionAlgorithm: string;
 }
 
+/**
+ * Configuration for quantum-safe (lattice-based) cryptography.
+ * - ivLength: Initialization Vector length for AES-GCM.
+ * - saltLength: Length of the salt.
+ * - keyAlgorithm: Hash algorithm used in key derivation.
+ * - encryptionAlgorithm: Symmetric encryption algorithm (AES-256-GCM is used as a placeholder).
+ */
 const QUANT_CONFIG: ICryptoConfig = {
-  ivLength: 100, // стандартная длина для AES-GCM
-  saltLength: 100, // достаточная длина соли
-  keyAlgorithm: 'sha3-256', // для квантовой устойчивости (решёточные алгоритмы)
-  encryptionAlgorithm: 'aes-256-gcm', // используется AES-GCM; для реальной квантовой защиты замените на решёточный алгоритм
+  ivLength: 100, // Standard IV length for AES-GCM
+  saltLength: 100, // Sufficient salt length
+  keyAlgorithm: 'sha3-256', // For quantum resistance (using lattice-based concepts)
+  encryptionAlgorithm: 'aes-256-gcm', // Using AES-GCM; replace with a lattice-based algorithm for true quantum protection if needed
 };
 
 type ICryptoKey = string[];
 
 /**
- * Функция для генерации «решёточного» ключа.
- * Сначала используется PBKDF2 с увеличенным количеством итераций,
- * затем полученный ключ дополнительно хэшируется с помощью SHA3-256.
+ * Derives a lattice-based key using the provided keys and salt.
+ * First, PBKDF2 with a high iteration count is used, and then the result is hashed using SHA3-256.
+ *
+ * @param keys - Array of key strings.
+ * @param salt - Salt as a Buffer.
+ * @returns A Promise that resolves to the derived lattice key as a Buffer.
+ * @throws Error if the provided keys are empty or invalid.
  */
 const deriveLatticeKey = async (keys: ICryptoKey, salt: Buffer): Promise<Buffer> => {
   if (!keys || keys.length === 0 || keys.some(key => typeof key !== 'string' || !key.trim())) {
-    throw new Error('Необходимо предоставить корректные непустые ключи.');
+    throw new Error('Valid non-empty keys must be provided.');
   }
 
-  // Используем PBKDF2 с очень высоким количеством итераций для повышения безопасности
+  // Use PBKDF2 with a very high iteration count for enhanced security.
   const baseKey: Buffer = await new Promise((resolve, reject) => {
     crypto.pbkdf2(
       keys.join(''),
       salt,
-      620000, // повышенное количество итераций для усиленной защиты
+      620000, // High iteration count for stronger protection
       55,
       'sha256',
       (err, derivedKey) => {
@@ -43,13 +57,16 @@ const deriveLatticeKey = async (keys: ICryptoKey, salt: Buffer): Promise<Buffer>
     );
   });
 
-  // Дополнительная обработка – хэширование для имитации решёточной схемы
+  // Further process the derived key by hashing it with SHA3-256 to simulate a lattice scheme.
   const latticeKey = crypto.createHash('sha3-256').update(baseKey).digest();
   return latticeKey;
 };
 
 /**
- * Проверка, находится ли строка в формате Base64.
+ * Checks whether the given string is in Base64 format.
+ *
+ * @param data - The string to check.
+ * @returns True if the data is in Base64 format, otherwise false.
  */
 const isBase64 = (data: string): boolean => {
   if (typeof data !== 'string') return false;
@@ -60,25 +77,22 @@ const isBase64 = (data: string): boolean => {
   }
 };
 
-/*
-  Реализация псевдо-решёточного шифрования для защиты симметричного ключа.
-  Здесь мы реализуем простейший алгоритм на основе сети Фейстеля, который используется для
-  «обертывания» (encapsulation) ключа AES. Это демонстрационная реализация и не гарантирует
-  реальной квантовой защиты.
-*/
-
 /**
- * Функция шифрования блока (32 байта) с использованием сети Фейстеля.
- * Используется массив раундовых ключей, размер блока делится на две половины по 16 байт.
+ * Encrypts a 32-byte block using a Feistel network with the provided round keys.
+ * The block is split into two halves (16 bytes each), and each round applies a SHA3-256 based function.
+ *
+ * @param block - The 32-byte Buffer to encrypt.
+ * @param roundKeys - Array of round keys as Buffers.
+ * @returns The encrypted Buffer.
  */
 function feistelEncrypt(block: Buffer, roundKeys: Buffer[]): Buffer {
-  const blockSize = block.length; // Ожидается 32 байта
+  const blockSize = block.length; // Expecting 32 bytes
   const half = blockSize / 2;
   let L = Buffer.from(block.slice(0, half));
   let R = Buffer.from(block.slice(half));
 
   for (let i = 0; i < roundKeys.length; i++) {
-    // Функция раунда: берем SHA3-256 от (R + раундовый ключ) и используем первые 16 байт
+    // Round function: hash (R combined with the round key) using SHA3-256 and take the first half bytes.
     const f = crypto.createHash('sha3-256')
       .update(Buffer.concat([R, roundKeys[i]]))
       .digest()
@@ -90,12 +104,17 @@ function feistelEncrypt(block: Buffer, roundKeys: Buffer[]): Buffer {
     L = R;
     R = newR;
   }
-  // Финальный обмен местами для симметричного преобразования
+  // Final swap to complete the symmetrical transformation.
   return Buffer.concat([R, L]);
 }
 
 /**
- * Функция дешифрования блока (32 байта) с использованием обратного порядка раундов.
+ * Decrypts a 32-byte block that was encrypted using a Feistel network.
+ * The decryption is performed by reversing the order of the rounds.
+ *
+ * @param block - The 32-byte Buffer to decrypt.
+ * @param roundKeys - Array of round keys as Buffers.
+ * @returns The decrypted Buffer.
  */
 function feistelDecrypt(block: Buffer, roundKeys: Buffer[]): Buffer {
   const blockSize = block.length;
@@ -119,11 +138,15 @@ function feistelDecrypt(block: Buffer, roundKeys: Buffer[]): Buffer {
 }
 
 /**
- * Функция «решёточного» шифрования симметричного ключа.
- * Реализуется на основе сети Фейстеля с 16 раундами.
+ * Encrypts a symmetric session key using a lattice-based (pseudo-lattice) approach.
+ * The encryption is implemented using a 16-round Feistel network.
+ *
+ * @param sessionKey - The session key (Buffer) to encrypt, expected to be 32 bytes.
+ * @param latticeKey - The derived lattice key (Buffer).
+ * @returns The encrypted session key as a Buffer.
  */
 function latticeEncryptKey(sessionKey: Buffer, latticeKey: Buffer): Buffer {
-  // Гарантируем, что sessionKey имеет длину 32 байта
+  // Ensure the sessionKey is 32 bytes long.
   let key = sessionKey;
   if (sessionKey.length !== 32) {
     key = Buffer.alloc(32);
@@ -132,7 +155,7 @@ function latticeEncryptKey(sessionKey: Buffer, latticeKey: Buffer): Buffer {
   const rounds = 16;
   const roundKeys: Buffer[] = [];
   for (let i = 0; i < rounds; i++) {
-    // Раундовый ключ формируется на основе latticeKey и номера раунда
+    // Derive the round key using the latticeKey and the round number.
     const roundKey = crypto.createHmac('sha3-256', latticeKey)
       .update(Buffer.from([i]))
       .digest();
@@ -142,7 +165,11 @@ function latticeEncryptKey(sessionKey: Buffer, latticeKey: Buffer): Buffer {
 }
 
 /**
- * Функция дешифрования симметричного ключа, зашифрованного с помощью latticeEncryptKey.
+ * Decrypts a symmetric session key that was encrypted using latticeEncryptKey.
+ *
+ * @param encryptedKey - The encrypted session key as a Buffer.
+ * @param latticeKey - The derived lattice key (Buffer) that was used for encryption.
+ * @returns The decrypted session key as a Buffer.
  */
 function latticeDecryptKey(encryptedKey: Buffer, latticeKey: Buffer): Buffer {
   const rounds = 16;
@@ -157,23 +184,29 @@ function latticeDecryptKey(encryptedKey: Buffer, latticeKey: Buffer): Buffer {
 }
 
 /**
- * Функция квантового (решёточного) шифрования данных.
- * Здесь реализован гибридный подход:
- * 1. Генерируется случайный симметричный sessionKey для AES-256-GCM.
- * 2. Данные шифруются AES-256-GCM с использованием sessionKey.
- * 3. Сам sessionKey завуёртывается (encapsulate) с помощью псевдо-решёточного шифрования,
- *    где для его защиты используется ключ, полученный от deriveLatticeKey.
- * В результирующем сообщении последовательно содержатся: соль, IV, тег аутентификации,
- * зашифрованный sessionKey и зашифрованный контент.
+ * Performs quantum-safe (lattice-based) encryption of data.
+ *
+ * The hybrid encryption approach consists of:
+ * 1. Generating a random symmetric session key for AES-256-GCM.
+ * 2. Encrypting the data using AES-256-GCM with the session key.
+ * 3. Wrapping (encapsulating) the session key using the pseudo-lattice encryption (latticeEncryptKey) with a derived key.
+ *
+ * The final encrypted message is structured as:
+ * salt | iv | authTag (16 bytes) | encrypted sessionKey (32 bytes) | encrypted content.
+ *
+ * @param data - Data to encrypt.
+ * @param keys - Array of key strings used for key derivation.
+ * @returns A Promise that resolves to the encrypted data as a Base64 encoded string.
+ * @throws Error if encryption fails.
  */
 export const quantEncryptedData = async (data: any, keys: ICryptoKey): Promise<string> => {
   if (data === undefined || data === null) {
-    throw new Error('Данные для шифрования отсутствуют.');
+    throw new Error('No data provided for encryption.');
   }
 
   const salt = crypto.randomBytes(QUANT_CONFIG.saltLength);
   const latticeKey = await deriveLatticeKey(keys, salt);
-  // Генерация случайного симметричного ключа (sessionKey) для AES
+  // Generate a random symmetric session key for AES encryption.
   const sessionKey = crypto.randomBytes(32);
   const iv = crypto.randomBytes(QUANT_CONFIG.ivLength);
 
@@ -186,11 +219,11 @@ export const quantEncryptedData = async (data: any, keys: ICryptoKey): Promise<s
     ]);
     const authTag = cipher.getAuthTag();
 
-    // Шифрование (обёртывание) sessionKey с использованием псевдо-решёточного алгоритма
+    // Encrypt (wrap) the sessionKey using the pseudo-lattice algorithm.
     const encryptedSessionKey = latticeEncryptKey(sessionKey, latticeKey);
 
-    // Формируем итоговое сообщение:
-    // salt | iv | authTag (16 байт) | зашифрованный sessionKey (32 байта) | encryptedContent
+    // Build the final message:
+    // salt | iv | authTag (16 bytes) | encrypted sessionKey (32 bytes) | encrypted content.
     return Buffer.concat([
       salt,
       iv,
@@ -199,24 +232,31 @@ export const quantEncryptedData = async (data: any, keys: ICryptoKey): Promise<s
       encryptedContent
     ]).toString('base64');
   } catch (error) {
-    throw new Error('Не удалось зашифровать данные. Проверьте входные данные и ключи.');
+    throw new Error('Failed to encrypt data. Check the input data and keys.');
   }
 };
 
 /**
- * Функция квантового (решёточного) дешифрования данных.
- * Производится обратный процесс:
- * 1. Извлекаются компоненты шифротекста: соль, IV, authTag, зашифрованный sessionKey и зашифрованный контент.
- * 2. С помощью deriveLatticeKey и latticeDecryptKey восстанавливается sessionKey.
- * 3. С использованием sessionKey данные дешифруются AES-256-GCM.
+ * Performs quantum-safe (lattice-based) decryption of data.
+ *
+ * The decryption process involves:
+ * 1. Extracting the components from the encrypted message: salt, iv, authTag, encrypted sessionKey, and encrypted content.
+ * 2. Deriving the lattice key using the provided keys and salt.
+ * 3. Unwrapping (decapsulating) the session key using latticeDecryptKey.
+ * 4. Decrypting the content using AES-256-GCM with the session key.
+ *
+ * @param encryptedData - The encrypted data as a Base64 encoded string.
+ * @param keys - Array of key strings used for derivation.
+ * @returns A Promise that resolves to the decrypted data.
+ * @throws Error if decryption fails.
  */
 export const quantDecryptedData = async (encryptedData: any, keys: ICryptoKey): Promise<any> => {
   if (!encryptedData) {
-    throw new Error('Данные для дешифрования отсутствуют или некорректны.');
+    throw new Error('No data provided for decryption or data is invalid.');
   }
 
   if (typeof encryptedData !== 'string' || !isBase64(encryptedData)) {
-    return encryptedData; // Если данные не в формате Base64, возвращаем как есть
+    return encryptedData; // If data is not Base64 encoded, return as is.
   }
 
   const bufferData = Buffer.from(encryptedData, 'base64');
@@ -234,7 +274,7 @@ export const quantDecryptedData = async (encryptedData: any, keys: ICryptoKey): 
   const encryptedContent = bufferData.slice(encryptedSessionKeyEnd);
 
   const latticeKey = await deriveLatticeKey(keys, salt);
-  // Дешифруем sessionKey с помощью псевдо-решёточного алгоритма
+  // Decrypt the session key using the pseudo-lattice algorithm.
   const sessionKey = latticeDecryptKey(encryptedSessionKey, latticeKey);
 
   const decipher = crypto.createDecipheriv(QUANT_CONFIG.encryptionAlgorithm, sessionKey, iv) as DecipherGCM;
@@ -248,65 +288,71 @@ export const quantDecryptedData = async (encryptedData: any, keys: ICryptoKey): 
 
     return JSON.parse(decryptedContent.toString('utf8'));
   } catch (error) {
-    throw new Error('Не удалось расшифровать данные. Проверьте ключи или целостность данных.');
+    throw new Error('Failed to decrypt data. Verify the keys or the integrity of the data.');
   }
 };
 
 /* ---------------------------------------------------------------------------
-   Реализация демо-постквантового механизма защиты данных,
-   использующего асимметричный ключевой обмен в виде KEM.
+   Demonstration implementation of a post-quantum data protection mechanism using
+   asymmetric key exchange via a Key Encapsulation Mechanism (KEM).
 --------------------------------------------------------------------------- */
 
 /**
- * Интерфейс для пары постквантовых ключей.
+ * Interface for a post-quantum key pair.
  */
 interface IPQKeyPair {
-  publicKey: Buffer;  // публичный ключ (32 байта)
-  privateKey: Buffer; // приватный ключ (32 байта)
+  publicKey: Buffer;  // Public key (32 bytes)
+  privateKey: Buffer; // Private key (32 bytes)
 }
 
 const PQC_ALGORITHM = 'Kyber512';
-const IV_LENGTH = 12; // Рекомендуемая длина IV для AES-256-GCM
+const IV_LENGTH = 12; // Recommended IV length for AES-256-GCM
 
 /**
- * Генерация пары постквантовых ключей с использованием node-oqs.
+ * Generates a post-quantum key pair using node-oqs.
  *
- * Метод генерирует ключевую пару (publicKey и privateKey) на основе выбранного алгоритма,
- * например, Kyber512, который считается одним из самых мощных постквантовых решений.
+ * The method generates a key pair (publicKey and privateKey) based on the selected algorithm,
+ * for example, Kyber512, which is regarded as one of the most robust post-quantum solutions.
+ *
+ * @returns An object containing the publicKey and privateKey as Buffers.
  */
 export const generatePostQuantumKeyPair = (): { publicKey: Buffer, privateKey: Buffer } => {
   const kem = new oqs.KEM(PQC_ALGORITHM);
-  const { publicKey, secretKey } = kem.generateKeyPair(); // secretKey будем использовать как privateKey
+  const { publicKey, secretKey } = (kem as any).generateKeyPair(); // using secretKey as privateKey
   return { publicKey, privateKey: secretKey };
 };
 
 /**
- * Функция надежного шифрования данных с использованием постквантовой инкапсуляции ключа (KEM)
- * из библиотеки node-oqs и симметричного шифрования AES-256-GCM.
+ * Securely encrypts data using post-quantum key encapsulation (KEM) from node-oqs and AES-256-GCM.
  *
- * Алгоритм работы:
- * 1. На основе публичного ключа получателя производится инкапсуляция: генерируется общий секрет и encapsulatedKey.
- * 2. Из общего секрета при помощи SHA-256 выводится 32-байтовый симметричный ключ.
- * 3. Данные шифруются алгоритмом AES-256-GCM с использованием симметричного ключа.
- * 4. Итоговое сообщение состоит из: encapsulatedKey | IV | authTag | зашифрованный контент.
+ * The encryption process:
+ * 1. Uses the recipient's public key to perform encapsulation, generating a shared secret and encapsulatedKey.
+ * 2. Derives a 32-byte symmetric key from the shared secret using SHA-256.
+ * 3. Encrypts the data with AES-256-GCM using the derived symmetric key.
+ * 4. Constructs the final message as: encapsulatedKey | IV | authTag | encrypted content.
+ *
+ * @param data - Data to encrypt.
+ * @param recipientPublicKey - The recipient's public key as a Buffer.
+ * @returns A Promise that resolves to the encrypted data as a Base64 encoded string.
+ * @throws Error if encryption fails.
  */
 export const secureEncryptData = async (data: any, recipientPublicKey: Buffer): Promise<string> => {
   if (data === undefined || data === null) {
-    throw new Error('Данные для шифрования отсутствуют.');
+    throw new Error('No data provided for encryption.');
   }
 
   const serializedData = JSON.stringify(data);
 
-  // Инициализируем KEM из node-oqs для выбранного алгоритма
+  // Initialize KEM from node-oqs for the chosen algorithm.
   const kem = new oqs.KEM(PQC_ALGORITHM);
 
-  // Инкапсуляция: генерируем общий секрет и encapsulatedKey на основе публичного ключа получателя
+  // Encapsulation: generate a shared secret and encapsulatedKey using the recipient's public key.
   const { sharedSecret, encapsulatedKey } = kem.encapsulate(recipientPublicKey);
 
-  // Вывод симметричного ключа из общего секрета (32 байта)
+  // Derive a symmetric key (32 bytes) from the shared secret using SHA-256.
   const symmetricKey = crypto.createHash('sha256').update(sharedSecret).digest();
 
-  // Генерируем стандартный IV (12 байт для AES-256-GCM)
+  // Generate a standard IV (12 bytes for AES-256-GCM).
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv('aes-256-gcm', symmetricKey, iv);
 
@@ -317,30 +363,35 @@ export const secureEncryptData = async (data: any, recipientPublicKey: Buffer): 
 
   const authTag = cipher.getAuthTag();
 
-  // Формируем итоговое сообщение: encapsulatedKey | IV | authTag | зашифрованный контент
+  // Build the final message: encapsulatedKey | IV | authTag | encrypted content.
   return Buffer.concat([encapsulatedKey, iv, authTag, encryptedContent]).toString('base64');
 };
 
 /**
- * Функция дешифрования данных, зашифрованных secureEncryptData.
+ * Decrypts data that was encrypted using secureEncryptData.
  *
- * Алгоритм работы:
- * 1. Из итогового сообщения извлекаются encapsulatedKey, IV, authTag и зашифрованный контент.
- * 2. С использованием приватного ключа получателя выполняется декapsulation для получения общего секрета.
- * 3. Из полученного общего секрета выводится симметричный ключ посредством SHA-256.
- * 4. Зашифрованный контент дешифруется алгоритмом AES-256-GCM.
+ * The decryption process:
+ * 1. Extracts the components from the message: encapsulatedKey, IV, authTag, and encrypted content.
+ * 2. Uses the recipient's private key to decapsulate and retrieve the shared secret.
+ * 3. Derives the symmetric key using SHA-256 from the shared secret.
+ * 4. Decrypts the encrypted content using AES-256-GCM.
+ *
+ * @param encryptedData - The encrypted data as a Base64 encoded string.
+ * @param recipientPrivateKey - The recipient's private key as a Buffer.
+ * @returns A Promise that resolves to the decrypted data.
+ * @throws Error if decryption fails.
  */
 export const secureDecryptData = async (encryptedData: any, recipientPrivateKey: Buffer): Promise<any> => {
   if (!encryptedData) {
-    throw new Error('Данные для дешифрования отсутствуют или некорректны.');
+    throw new Error('No data provided for decryption or data is invalid.');
   }
   if (typeof encryptedData !== 'string') {
-    throw new Error('Неверный формат зашифрованных данных.');
+    throw new Error('Invalid format for encrypted data.');
   }
 
   const bufferData = Buffer.from(encryptedData, 'base64');
 
-  // Инициализируем KEM для получения длины encapsulatedKey
+  // Initialize KEM to determine the encapsulatedKey length.
   const kem = new oqs.KEM(PQC_ALGORITHM);
   const encapsulatedKeyLength = kem.getCiphertextLength();
 
@@ -349,7 +400,7 @@ export const secureDecryptData = async (encryptedData: any, recipientPrivateKey:
   const authTag = bufferData.slice(encapsulatedKeyLength + IV_LENGTH, encapsulatedKeyLength + IV_LENGTH + 16);
   const encryptedContent = bufferData.slice(encapsulatedKeyLength + IV_LENGTH + 16);
 
-  // Декapsulation: восстанавливаем общий секрет с использованием приватного ключа
+  // Decapsulation: retrieve the shared secret using the recipient's private key.
   const sharedSecret = kem.decapsulate(encapsulatedKey, recipientPrivateKey);
   const symmetricKey = crypto.createHash('sha256').update(sharedSecret).digest();
 
@@ -363,3 +414,5 @@ export const secureDecryptData = async (encryptedData: any, recipientPrivateKey:
 
   return JSON.parse(decryptedContent.toString('utf8'));
 };
+
+const { publicKey, privateKey } = generatePostQuantumKeyPair();
